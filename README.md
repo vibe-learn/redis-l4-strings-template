@@ -1,2 +1,58 @@
-# redis-l4-strings-template
-Homework template for Vibe Learn lesson l1_strings
+        # redis — Строки: INCR, SETNX, битмаски
+
+        Homework-шаблон для урока **l1_strings** (Строки: INCR, SETNX, битмаски) на платформе Vibe Learn.
+
+        ## Что делать
+
+        Реализуй rate-limit middleware для net/http на go-redis: не более 100 запросов в минуту с одного IP.
+- ключ вида `rate:ip:<ip>:<минутный-bucket>` (fixed-window);
+- атомарно «INCR + поставить EXPIRE 60 ровно на первой инкрементации» через Lua-скрипт
+  (`if redis.call('INCR', KEYS[1]) == 1 then redis.call('EXPIRE', KEYS[1], 60) end`),
+  БЕЗ MULTI и без отдельного EXPIRE из Go — это устраняет окно гонки;
+- если счётчик > 100 — вернуть HTTP 429 с заголовком Retry-After.
+Тесты: (1) бомбардируют middleware 200 запросами и проверяют, что отказы (429) начались
+ровно с 101-го; (2) проверяют, что у ключа выставлен TTL (нет «вечного» счётчика даже при
+сбое между INCR и EXPIRE — потому что это один Lua-вызов); (3) что разные IP лимитируются независимо.
+
+## Контекст (из transfer-задачи урока)
+
+Тебе нужно реализовать rate-limit «не более 100 запросов в минуту с IP-адреса» в Go-сервисе.
+Сейчас у тебя есть Redis. Опиши решение через INCR/EXPIRE: какие ключи, какая логика,
+что произойдёт на границе минут, как избежать race condition между INCR и EXPIRE.
+
+## Recap из урока
+
+- `INCR/DECR` — атомарные на уровне сервера. Тысяча клиентов параллельно = ровно +1000, без локов и race condition.
+- `SET key value NX EX 30` — паттерн distributed lock. Без TTL ключ остаётся навсегда при падении воркера → не используй простой SETNX без EX.
+- `SETBIT/BITCOUNT` — битмаски. 1M юзеров за 125KB вместо 50MB как SET. DAU/MAU, фичефлаги по %, blooms.
+- INCR работает только на числовых строках. "abc" + INCR = ошибка.
+- Один ключ — один тип. LPUSH на string-ключ = WRONGTYPE error. Чтобы сменить тип, нужен DEL.
+
+        ## Как работать
+
+        1. Платформа Vibe Learn создаёт копию этого репо в твоём GitHub-аккаунте по клику «Начать домашку» на странице урока (через GitHub `/generate`, codecrafters-pattern).
+        2. Склонируй копию локально, реализуй TODO в `main.go`, прогони тесты, запушь.
+        3. CI (`.github/workflows/ci.yml`) запускает `go vet` + `go test ./...` на каждый push. Платформа слушает результат через webhook от GitHub Actions и обновляет статус домашки на странице урока.
+
+        ## Локальное окружение
+
+        - Go 1.22+
+        - Docker + docker-compose — `docker compose up -d` поднимает single-node Redis 7 на `localhost:6379` (с включёнными keyspace-notifications и AOF). Адрес переопределяется через env `REDIS_ADDR`.
+
+        ## Запуск
+
+        ```bash
+        # Поднять локальный Redis
+        docker compose up -d
+
+        # Прогнать тесты (интеграционный включается через REDIS_INTEGRATION=1)
+        go test ./...
+        REDIS_INTEGRATION=1 go test ./...
+
+        # Запустить main (печатает marker; замени stub на реализацию)
+        go run .
+        ```
+
+        ## Заметка автора
+
+        Это baseline-шаблон, сгенерированный платформой. Бизнес-сущность задачи (что конкретно реализовать в `main.go`, какие тесты сделать строгими) расширяется по ходу итераций — параллельно с углублением теории урока.
